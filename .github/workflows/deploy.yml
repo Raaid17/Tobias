@@ -70,7 +70,7 @@ jobs:
           if [ -z "$WEBHOOK" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "PORTAINER_WEBHOOK_URL not set - skipping redeploy."
-            echo "Add it (plus the TS_OAUTH_* secrets) under repo Settings ->"
+            echo "Add it (plus TS_AUTHKEY) under repo Settings ->"
             echo "Secrets and variables -> Actions once Portainer is set up."
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
@@ -82,9 +82,7 @@ jobs:
         if: steps.check.outputs.configured == 'true'
         uses: tailscale/github-action@v3
         with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci
+          authkey: ${{ secrets.TS_AUTHKEY }}
 
       - name: Trigger Portainer redeploy
         if: steps.check.outputs.configured == 'true'
