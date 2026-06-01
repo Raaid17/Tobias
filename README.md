@@ -155,15 +155,14 @@ Portainer redeploys the stack via webhook.**
 5. **Let CI reach your Tailscale-only Portainer.** GitHub's hosted runners
    aren't on your tailnet, so the `redeploy` job joins it (via
    `tailscale/github-action`) before calling the webhook. One-time setup:
-   - **Settings → Keys → Generate auth key**: enable **Reusable** and
-     **Ephemeral**. Tagging it `tag:ci` is recommended (define the tag first
-     under *Access controls → Tags*); with the default allow-all policy an
-     untagged key also works. Copy the key.
-   - Add it as the repo secret `TS_AUTHKEY`.
-   - ⏳ Auth keys expire (max 90 days) — regenerate and update the secret when
-     it lapses. If your tailnet exposes **OAuth clients** (no expiry), you can
-     instead use `oauth-client-id` / `oauth-secret` + `tags: tag:ci` in the
-     workflow.
+   - **Access controls → Tags**: define `tag:ci` (owner: your account). OAuth
+     credentials can only mint *tagged* keys, so this tag is required.
+   - **Settings → Trust credentials → + Credential**: type **OAuth**, enable the
+     **Auth Keys → Write** scope, and attach the tag **`tag:ci`**. Copy the
+     client ID and secret.
+   - Add two repo secrets: `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`. These
+     don't expire. (To use a plain auth key instead, swap the workflow's
+     `oauth-client-id`/`oauth-secret`/`tags` for `authkey`.)
 
    (The webhook uses `curl -k` because Portainer's `:9443` cert is self-signed;
    the Tailscale tunnel already authenticates and encrypts the connection.)
