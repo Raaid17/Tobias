@@ -1,0 +1,45 @@
+# Local + Portainer stack: the bot plus its Lavalink audio node.
+# Both run on a private network; only the bot talks to Lavalink (nothing is
+# published to the host/LAN). Secrets come from the environment (a local .env
+# file here, or the Portainer stack's environment variables in production).
+
+services:
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    container_name: lavalink
+    restart: unless-stopped
+    environment:
+      # Substituted into lavalink/application.yml at startup.
+      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      # Cap memory; tune for your homelab.
+      _JAVA_OPTIONS: -Xmx512m
+    volumes:
+      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+      # Persist downloaded plugins (e.g. the YouTube source) across restarts.
+      - lavalink-plugins:/opt/Lavalink/plugins
+    networks:
+      - bot-net
+
+  bot:
+    build: .
+    image: discord-bot:local
+    container_name: discord-bot
+    restart: unless-stopped
+    depends_on:
+      - lavalink
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?set DISCORD_TOKEN in your .env or stack env}
+      DEV_GUILD_ID: ${DEV_GUILD_ID:-}
+      # Reach Lavalink by its service name on the internal network.
+      LAVALINK_URI: http://lavalink:2333
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    networks:
+      - bot-net
+
+networks:
+  bot-net:
+    driver: bridge
+
+volumes:
+  lavalink-plugins:

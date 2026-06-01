@@ -1,0 +1,50 @@
+# Production stack for Portainer.
+# Unlike docker-compose.yml (which builds the bot locally), this pulls the
+# prebuilt image that GitHub Actions published to GHCR. Point your Portainer
+# "Add stack -> Repository" at this file.
+#
+# Set these as STACK ENVIRONMENT VARIABLES in Portainer (never commit them):
+#   DISCORD_TOKEN      (required)
+#   LAVALINK_PASSWORD  (recommended: a strong value)
+#   DEV_GUILD_ID       (optional)
+#   LOG_LEVEL          (optional, default INFO)
+#   BOT_IMAGE          (optional: pin a specific tag for rollback,
+#                       e.g. ghcr.io/raaid17/discord-bot:sha-1a2b3c4)
+
+services:
+  lavalink:
+    image: ghcr.io/lavalink-devs/lavalink:4
+    container_name: lavalink
+    restart: unless-stopped
+    environment:
+      LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      _JAVA_OPTIONS: -Xmx512m
+    volumes:
+      - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
+      - lavalink-plugins:/opt/Lavalink/plugins
+    networks:
+      - bot-net
+
+  bot:
+    image: ${BOT_IMAGE:-ghcr.io/raaid17/discord-bot:latest}
+    container_name: discord-bot
+    restart: unless-stopped
+    # Always pull the newest image on (re)deploy so the webhook ships updates.
+    pull_policy: always
+    depends_on:
+      - lavalink
+    environment:
+      DISCORD_TOKEN: ${DISCORD_TOKEN:?set DISCORD_TOKEN as a stack environment variable}
+      DEV_GUILD_ID: ${DEV_GUILD_ID:-}
+      LAVALINK_URI: http://lavalink:2333
+      LAVALINK_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    networks:
+      - bot-net
+
+networks:
+  bot-net:
+    driver: bridge
+
+volumes:
+  lavalink-plugins:

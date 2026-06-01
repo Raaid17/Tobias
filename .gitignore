@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Secrets & local config
+.env
+
+# Logs
+*.log
+
+# Lavalink runtime artifacts
+lavalink/plugins/
+lavalink/logs/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

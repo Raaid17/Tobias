@@ -1,0 +1,64 @@
+# Lavalink v4 configuration.
+# Lavalink v4 dropped built-in YouTube support, so we load the community
+# youtube-source plugin (downloaded automatically on first start) and disable
+# the deprecated built-in YouTube source.
+
+server:
+  port: 2333
+  address: 0.0.0.0
+
+lavalink:
+  plugins:
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.13.0"
+      repository: "https://maven.lavalink.dev/releases"
+  server:
+    # ${VAR:default} is resolved from the environment (set by docker-compose).
+    password: "${LAVALINK_SERVER_PASSWORD:youshallnotpass}"
+    sources:
+      youtube: false        # handled by the plugin below, not the built-in source
+      bandcamp: true
+      soundcloud: true
+      twitch: true
+      vimeo: true
+      http: true
+      local: false
+    filters:
+      volume: true
+      equalizer: true
+      karaoke: true
+      timescale: true
+      tremolo: true
+      vibrato: true
+      distortion: true
+      rotation: true
+      channelMix: true
+      lowPass: true
+    bufferDurationMs: 400
+    frameBufferDurationMs: 5000
+    opusEncodingQuality: 10
+    resamplingQuality: LOW
+    trackStuckThresholdMs: 10000
+    useSeekGhosting: true
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 5
+    youtubeSearchEnabled: true
+    soundcloudSearchEnabled: true
+
+# youtube-source plugin settings.
+plugins:
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    # Client mix that is reasonably resilient to YouTube changes.
+    clients:
+      - MUSIC
+      - ANDROID_VR
+      - WEB
+      - WEBEMBEDDED
+
+logging:
+  level:
+    root: INFO
+    lavalink: INFO

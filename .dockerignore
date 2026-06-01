@@ -1,0 +1,19 @@
+# Keep the image small and free of secrets / dev clutter.
+.git
+.gitignore
+.github
+.env
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.log
+
+# Lavalink runs as a separate service; its config is mounted, not baked in.
+lavalink/
+docker-compose.yml
+
+# Docs
+*.md
+README*
