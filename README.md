@@ -152,11 +152,31 @@ Portainer redeploys the stack via webhook.**
    variables → Actions → **New repository secret** named
    `PORTAINER_WEBHOOK_URL`, value = the webhook URL from step 3.
 
+5. **Let CI reach your Tailscale-only Portainer.** GitHub's hosted runners
+   aren't on your tailnet, so the `redeploy` job joins it (via
+   `tailscale/github-action`) before calling the webhook. One-time setup:
+   - In the Tailscale admin console → **Access controls**, add a CI tag and
+     allow it to reach Portainer's port `9443`:
+     ```jsonc
+     "hosts":     { "portainer": "100.x.y.z" },   // the Portainer node's tailnet IP
+     "tagOwners": { "tag:ci": ["autogroup:admin"] },
+     "acls": [
+       { "action": "accept", "src": ["tag:ci"], "dst": ["portainer:9443"] }
+     ]
+     ```
+   - **Settings → OAuth clients → Generate**: give it the *Auth keys: write*
+     scope and the tag `tag:ci`. Copy the client ID and secret.
+   - Add two more repo secrets: `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_SECRET`.
+
+   (The webhook uses `curl -k` because Portainer's `:9443` cert is self-signed;
+   the Tailscale tunnel already authenticates and encrypts the connection.)
+
 ### From then on
 
-`git push` to `main` → image rebuilds → Portainer re-pulls and redeploys
-automatically. To roll back, set `BOT_IMAGE` in the Portainer stack to a pinned
-tag (e.g. `ghcr.io/raaid17/tobias:sha-1a2b3c4`) and redeploy.
+`git push` to `main` → image rebuilds → the runner joins your tailnet → POSTs
+the Portainer webhook → Portainer re-pulls and redeploys. To roll back, set
+`BOT_IMAGE` in the Portainer stack to a pinned tag (e.g.
+`ghcr.io/raaid17/tobias:sha-1a2b3c4`) and redeploy.
 
-> Until `PORTAINER_WEBHOOK_URL` is set (i.e. before step 4), the build still
-> runs and publishes the image; the redeploy step just skips itself.
+> Until `PORTAINER_WEBHOOK_URL` is set, the build still runs and publishes the
+> image; the `redeploy` job stays green and skips itself.

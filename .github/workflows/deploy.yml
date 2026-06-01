@@ -59,16 +59,40 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger Portainer redeploy
+      # Portainer lives on a Tailscale-only host, so first decide whether the
+      # webhook is configured. Before the secret exists this job stays green and
+      # skips the Tailscale join + redeploy.
+      - name: Check webhook configured
+        id: check
         env:
           WEBHOOK: ${{ secrets.PORTAINER_WEBHOOK_URL }}
         run: |
           if [ -z "$WEBHOOK" ]; then
-            echo "PORTAINER_WEBHOOK_URL secret not set - skipping redeploy."
-            echo "Add it under repo Settings -> Secrets and variables -> Actions"
-            echo "once your Portainer stack and its webhook exist."
-            exit 0
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "PORTAINER_WEBHOOK_URL not set - skipping redeploy."
+            echo "Add it (plus the TS_OAUTH_* secrets) under repo Settings ->"
+            echo "Secrets and variables -> Actions once Portainer is set up."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
-          echo "Triggering Portainer stack redeploy..."
-          curl -fsSL -X POST "$WEBHOOK"
+
+      # Join the runner to the tailnet as an ephemeral, tagged node so it can
+      # reach the *.ts.net Portainer host.
+      - name: Connect to Tailscale
+        if: steps.check.outputs.configured == 'true'
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Trigger Portainer redeploy
+        if: steps.check.outputs.configured == 'true'
+        env:
+          WEBHOOK: ${{ secrets.PORTAINER_WEBHOOK_URL }}
+        run: |
+          echo "Triggering Portainer stack redeploy over Tailscale..."
+          # -k: Portainer's :9443 uses a self-signed cert; the Tailscale tunnel
+          # already authenticates and encrypts the connection.
+          curl -fsSL -k -X POST "$WEBHOOK"
           echo "Redeploy triggered."
