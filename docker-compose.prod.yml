@@ -30,9 +30,9 @@ services:
       LAVALINK_PLUGINS_0_REPOSITORY: "https://maven.lavalink.dev/releases"
       PLUGINS_YOUTUBE_ENABLED: "true"
       _JAVA_OPTIONS: -Xmx512m
-    volumes:
-      # Persist the downloaded plugin jar across restarts.
-      - lavalink-plugins:/opt/Lavalink/plugins
+    # No plugins volume: a root-owned named volume isn't writable by Lavalink's
+    # non-root user (FileNotFoundException ... Permission denied). Letting it use
+    # its own writable dir just means a ~few-second re-download on each redeploy.
     networks:
       - bot-net
 
@@ -56,6 +56,3 @@ services:
 networks:
   bot-net:
     driver: bridge
-
-volumes:
-  lavalink-plugins:
