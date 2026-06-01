@@ -1,4 +1,4 @@
-# Discord Assistant Bot
+# Tobias
 
 A modular Discord bot built to grow into a general AI assistant. The first
 module is **music** (Lavalink-powered voice playback via slash commands).
@@ -120,7 +120,7 @@ Pipeline: **push to `main` → GitHub Actions builds the image → pushes to GHC
 Portainer redeploys the stack via webhook.**
 
 - `.github/workflows/deploy.yml` — builds `linux/amd64` and pushes
-  `ghcr.io/raaid17/discord-bot:latest` (+ a `sha-…` tag for rollback), then
+  `ghcr.io/raaid17/tobias:latest` (+ a `sha-…` tag for rollback), then
   POSTs the Portainer redeploy webhook.
 - `docker-compose.prod.yml` — the stack Portainer runs; it *pulls* the GHCR
   image (no build) and reads secrets from the Portainer stack environment.
@@ -130,17 +130,17 @@ Portainer redeploys the stack via webhook.**
 1. **Create the GitHub repo** and push (run these in your terminal so any login
    prompt is interactive):
    ```powershell
-   git remote add origin https://github.com/Raaid17/discord-bot.git
+   git remote add origin https://github.com/Raaid17/Tobias.git
    git push -u origin main
    ```
    The first push triggers Actions, which builds and publishes the image.
 
 2. **Make the image public** (so Portainer needs no registry login):
-   GitHub → your profile → **Packages** → `discord-bot` → **Package settings**
+   GitHub → your profile → **Packages** → `tobias` → **Package settings**
    → **Change visibility** → **Public**.
 
 3. **Add the stack in Portainer:** Stacks → **Add stack** → **Repository**.
-   - Repository URL: `https://github.com/Raaid17/discord-bot`
+   - Repository URL: `https://github.com/Raaid17/Tobias`
    - Reference: `refs/heads/main`
    - Compose path: `docker-compose.prod.yml`
    - **Environment variables:** add `DISCORD_TOKEN` and `LAVALINK_PASSWORD`
@@ -156,7 +156,7 @@ Portainer redeploys the stack via webhook.**
 
 `git push` to `main` → image rebuilds → Portainer re-pulls and redeploys
 automatically. To roll back, set `BOT_IMAGE` in the Portainer stack to a pinned
-tag (e.g. `ghcr.io/raaid17/discord-bot:sha-1a2b3c4`) and redeploy.
+tag (e.g. `ghcr.io/raaid17/tobias:sha-1a2b3c4`) and redeploy.
 
 > Until `PORTAINER_WEBHOOK_URL` is set (i.e. before step 4), the build still
 > runs and publishes the image; the redeploy step just skips itself.

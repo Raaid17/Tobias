@@ -9,7 +9,7 @@
 #   DEV_GUILD_ID       (optional)
 #   LOG_LEVEL          (optional, default INFO)
 #   BOT_IMAGE          (optional: pin a specific tag for rollback,
-#                       e.g. ghcr.io/raaid17/discord-bot:sha-1a2b3c4)
+#                       e.g. ghcr.io/raaid17/tobias:sha-1a2b3c4)
 
 services:
   lavalink:
@@ -26,7 +26,7 @@ services:
       - bot-net
 
   bot:
-    image: ${BOT_IMAGE:-ghcr.io/raaid17/discord-bot:latest}
+    image: ${BOT_IMAGE:-ghcr.io/raaid17/tobias:latest}
     container_name: discord-bot
     restart: unless-stopped
     # Always pull the newest image on (re)deploy so the webhook ships updates.
