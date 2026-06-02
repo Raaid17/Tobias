@@ -13,6 +13,7 @@ import wavelink
 from discord import app_commands
 from discord.ext import commands
 
+from cogs.components import NowPlayingControls
 from services import audio
 
 log = logging.getLogger("music")
@@ -38,16 +39,29 @@ class Music(commands.Cog):
     async def on_wavelink_track_start(
         self, payload: wavelink.TrackStartEventPayload
     ) -> None:
-        """Announce the track in the channel where /play was used."""
+        """Announce the track (with controls) where /play was used."""
         player = payload.player
         if player is None:
             return
         home: discord.abc.Messageable | None = getattr(player, "home", None)
-        if home is not None:
+        if home is None:
+            return
+
+        # Strip the buttons off the previous panel so only the newest is live.
+        previous: discord.Message | None = getattr(player, "np_message", None)
+        if previous is not None:
             try:
-                await home.send(embed=audio.now_playing_embed(player))
+                await previous.edit(view=None)
             except discord.HTTPException:
                 pass
+
+        try:
+            message = await home.send(
+                embed=audio.now_playing_embed(player), view=NowPlayingControls()
+            )
+            player.np_message = message  # type: ignore[attr-defined]
+        except discord.HTTPException:
+            pass
 
     @commands.Cog.listener()
     async def on_wavelink_inactive_player(self, player: wavelink.Player) -> None:
@@ -223,7 +237,125 @@ class Music(commands.Cog):
         if player is None or player.current is None:
             await self._respond(interaction, "Nothing is playing.", error=True)
             return
-        await interaction.response.send_message(embed=audio.now_playing_embed(player))
+        await interaction.response.send_message(
+            embed=audio.now_playing_embed(player), view=NowPlayingControls()
+        )
+
+    @app_commands.command(
+        name="volume", description="Show or set the playback volume (0-200)."
+    )
+    @app_commands.describe(level="New volume 0-200; omit to show the current volume.")
+    async def volume(
+        self,
+        interaction: discord.Interaction,
+        level: app_commands.Range[int, 0, audio.MAX_VOLUME] | None = None,
+    ) -> None:
+        player = await self._get_player(interaction)
+        if player is None:
+            await self._respond(interaction, "I'm not connected.", error=True)
+            return
+        if level is None:
+            await self._respond(interaction, f"🔊 Volume is **{player.volume}%**.")
+            return
+        await player.set_volume(level)
+        await self._respond(interaction, f"🔊 Volume set to **{level}%**.")
+
+    @app_commands.command(
+        name="loop", description="Loop the current track, the whole queue, or turn it off."
+    )
+    @app_commands.describe(mode="What to repeat.")
+    @app_commands.choices(
+        mode=[
+            app_commands.Choice(name="Off", value="off"),
+            app_commands.Choice(name="Current track", value="track"),
+            app_commands.Choice(name="Whole queue", value="queue"),
+        ]
+    )
+    async def loop(
+        self, interaction: discord.Interaction, mode: app_commands.Choice[str]
+    ) -> None:
+        player = await self._get_player(interaction)
+        if player is None:
+            await self._respond(interaction, "I'm not connected.", error=True)
+            return
+        player.queue.mode = {
+            "off": wavelink.QueueMode.normal,
+            "track": wavelink.QueueMode.loop,
+            "queue": wavelink.QueueMode.loop_all,
+        }[mode.value]
+        await self._respond(interaction, f"🔁 Loop set to **{mode.name}**.")
+
+    @app_commands.command(name="shuffle", description="Shuffle the upcoming queue.")
+    async def shuffle(self, interaction: discord.Interaction) -> None:
+        player = await self._get_player(interaction)
+        if player is None or player.queue.count < 2:
+            await self._respond(
+                interaction, "Need at least 2 queued tracks to shuffle.", error=True
+            )
+            return
+        player.queue.shuffle()
+        await self._respond(interaction, f"🔀 Shuffled **{player.queue.count}** tracks.")
+
+    @app_commands.command(
+        name="seek", description="Jump to a position in the current track (e.g. 1:30)."
+    )
+    @app_commands.describe(position="A timestamp: seconds, M:SS, or H:MM:SS.")
+    async def seek(self, interaction: discord.Interaction, position: str) -> None:
+        player = await self._get_player(interaction)
+        if player is None or player.current is None:
+            await self._respond(interaction, "Nothing is playing.", error=True)
+            return
+        track = player.current
+        if track.is_stream or not getattr(track, "is_seekable", True):
+            await self._respond(interaction, "This track can't be seeked.", error=True)
+            return
+        ms = audio.parse_timestamp(position)
+        if ms is None:
+            await self._respond(
+                interaction,
+                "Invalid time. Use seconds or `M:SS` (e.g. `1:30`).",
+                error=True,
+            )
+            return
+        ms = min(ms, track.length)
+        await player.seek(ms)
+        await self._respond(interaction, f"⏩ Seeked to `{audio.format_duration(ms)}`.")
+
+    @app_commands.command(
+        name="remove", description="Remove a track from the queue by its position."
+    )
+    @app_commands.describe(index="Queue position to remove (see /queue).")
+    async def remove(
+        self, interaction: discord.Interaction, index: app_commands.Range[int, 1, None]
+    ) -> None:
+        player = await self._get_player(interaction)
+        if player is None or player.queue.is_empty:
+            await self._respond(interaction, "The queue is empty.", error=True)
+            return
+        if index > player.queue.count:
+            await self._respond(
+                interaction,
+                f"There are only {player.queue.count} track(s) in the queue.",
+                error=True,
+            )
+            return
+        track = player.queue[index - 1]
+        del player.queue[index - 1]
+        await self._respond(interaction, f"🗑️ Removed **{track.title}**.")
+
+    @app_commands.command(
+        name="clear", description="Clear the upcoming queue (keeps the current track)."
+    )
+    async def clear(self, interaction: discord.Interaction) -> None:
+        player = await self._get_player(interaction)
+        if player is None or player.queue.is_empty:
+            await self._respond(interaction, "The queue is already empty.", error=True)
+            return
+        count = player.queue.count
+        player.queue.clear()
+        await self._respond(
+            interaction, f"🧹 Cleared **{count}** track(s) from the queue."
+        )
 
 
 async def setup(bot: commands.Bot) -> None:

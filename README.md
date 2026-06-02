@@ -93,25 +93,33 @@ All configuration is via environment variables (see `.env.example`):
 
 ## Commands
 
-| Command                  | Description                          |
-| ------------------------ | ------------------------------------ |
-| `/play <query \| url>`   | Play or enqueue a track              |
-| `/skip`                  | Skip the current track               |
-| `/queue`                 | Show the queue                       |
-| `/nowplaying`            | Show the current track               |
-| `/pause` · `/resume`     | Pause / resume playback              |
-| `/stop`                  | Stop and clear the queue             |
-| `/leave`                 | Disconnect from voice                |
-| `/ping` · `/help`        | Latency check / command list         |
+| Command                    | Description                              |
+| -------------------------- | ---------------------------------------- |
+| `/play <query \| url>`     | Play or enqueue a track                  |
+| `/skip`                    | Skip the current track                   |
+| `/queue`                   | Show the queue                           |
+| `/nowplaying`              | Show the current track (with controls)   |
+| `/pause` · `/resume`       | Pause / resume playback                  |
+| `/volume [0-200]`          | Show or set the volume                   |
+| `/loop <off\|track\|queue>`| Set the loop mode                        |
+| `/shuffle`                 | Shuffle the upcoming queue               |
+| `/seek <time>`             | Jump to a position (e.g. `1:30`)         |
+| `/remove <n>`              | Remove a queued track by position        |
+| `/clear`                   | Clear the queue (keeps current track)    |
+| `/stop`                    | Stop and clear the queue                 |
+| `/leave`                   | Disconnect from voice                    |
+| `/ping` · `/help`          | Latency check / command list             |
 
-The bot auto-disconnects after a period of inactivity.
+Every "Now playing" message also has buttons (⏯️ ⏭️ 🔀 🔁 ⏹️) usable by
+anyone in the bot's voice channel. The bot auto-disconnects after a period of
+inactivity.
 
 ## Roadmap
 
 - [x] Phase 0 — Foundation (config, logging, bot core, `/ping`)
 - [x] Phase 1 — Music MVP
 - [x] Deployment pipeline — GitHub Actions → GHCR → Portainer (webhook deploy)
-- [ ] Phase 2 — Music polish (volume, loop/shuffle, controls)
+- [x] Phase 2 — Music polish (volume, loop/shuffle, seek, controls)
 - [ ] Phase 3 — AI module (`/ask`, `/chat` via Claude)
 
 ## Deployment (homelab / Portainer)
