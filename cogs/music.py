@@ -11,7 +11,7 @@ import logging
 import discord
 import wavelink
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from cogs.components import NowPlayingControls
 from services import audio
@@ -22,6 +22,88 @@ log = logging.getLogger("music")
 class Music(commands.Cog):
     def __init__(self, bot: commands.Bot) -> None:
         self.bot = bot
+
+    async def cog_load(self) -> None:
+        self._progress_updater.start()
+
+    async def cog_unload(self) -> None:
+        self._progress_updater.cancel()
+
+    # ----- background tasks ------------------------------------------------
+
+    @tasks.loop(seconds=audio.NOW_PLAYING_REFRESH)
+    async def _progress_updater(self) -> None:
+        """Advance each active now-playing progress bar by editing its message.
+
+        Discord embeds don't animate, so the bar only moves when we re-render
+        it. To keep edits (and the thumbnail flicker they cause) minimal, we
+        only edit when the bar has actually moved a slot.
+        """
+        for vc in list(self.bot.voice_clients):
+            if not isinstance(vc, wavelink.Player):
+                continue
+            player = vc
+            message: discord.Message | None = getattr(player, "np_message", None)
+            track = player.current
+            if message is None or track is None or player.paused or track.is_stream:
+                continue
+            fill = audio.progress_fill(player.position, track.length)
+            if getattr(player, "np_fill", None) == fill:
+                continue
+            player.np_fill = fill  # type: ignore[attr-defined]
+            try:
+                await message.edit(embed=audio.now_playing_embed(player))
+            except discord.HTTPException:
+                pass
+
+    @_progress_updater.before_loop
+    async def _before_progress_updater(self) -> None:
+        await self.bot.wait_until_ready()
+
+    async def _refresh_np(self, player: wavelink.Player) -> None:
+        """Re-render the now-playing panel so its embed and buttons reflect a
+        change made outside the periodic updater (pause, volume, loop, …)."""
+        message: discord.Message | None = getattr(player, "np_message", None)
+        if message is None or player.current is None:
+            return
+        view: NowPlayingControls | None = getattr(player, "np_view", None)
+        kwargs: dict = {"embed": audio.now_playing_embed(player)}
+        if view is not None:
+            view.sync(player)
+            kwargs["view"] = view
+        try:
+            await message.edit(**kwargs)
+        except discord.HTTPException:
+            pass
+
+    async def _retire_panel(self, player: wavelink.Player) -> None:
+        """Deactivate the previous now-playing panel (stop its view, drop its
+        buttons) so only the newest panel stays interactive."""
+        old_view: NowPlayingControls | None = getattr(player, "np_view", None)
+        if old_view is not None:
+            old_view.stop()
+        old_message: discord.Message | None = getattr(player, "np_message", None)
+        if old_message is not None:
+            try:
+                await old_message.edit(view=None)
+            except discord.HTTPException:
+                pass
+
+    def _set_panel(
+        self,
+        player: wavelink.Player,
+        message: discord.Message,
+        view: NowPlayingControls,
+    ) -> None:
+        """Record a freshly-posted panel as the live one for this player."""
+        player.np_message = message  # type: ignore[attr-defined]
+        player.np_view = view  # type: ignore[attr-defined]
+        track = player.current
+        player.np_fill = (  # type: ignore[attr-defined]
+            audio.progress_fill(player.position, track.length)
+            if track is not None and not track.is_stream
+            else None
+        )
 
     # ----- wavelink events -------------------------------------------------
 
@@ -47,21 +129,14 @@ class Music(commands.Cog):
         if home is None:
             return
 
-        # Strip the buttons off the previous panel so only the newest is live.
-        previous: discord.Message | None = getattr(player, "np_message", None)
-        if previous is not None:
-            try:
-                await previous.edit(view=None)
-            except discord.HTTPException:
-                pass
-
+        await self._retire_panel(player)
+        view = NowPlayingControls()
+        view.sync(player)
         try:
-            message = await home.send(
-                embed=audio.now_playing_embed(player), view=NowPlayingControls()
-            )
-            player.np_message = message  # type: ignore[attr-defined]
+            message = await home.send(embed=audio.now_playing_embed(player), view=view)
         except discord.HTTPException:
-            pass
+            return
+        self._set_panel(player, message, view)
 
     @commands.Cog.listener()
     async def on_wavelink_inactive_player(self, player: wavelink.Player) -> None:
@@ -186,6 +261,7 @@ class Music(commands.Cog):
             await self._respond(interaction, "Already paused.", error=True)
             return
         await player.pause(True)
+        await self._refresh_np(player)
         await self._respond(interaction, "⏸️ Paused.")
 
     @app_commands.command(name="resume", description="Resume playback.")
@@ -198,6 +274,7 @@ class Music(commands.Cog):
             await self._respond(interaction, "Playback isn't paused.", error=True)
             return
         await player.pause(False)
+        await self._refresh_np(player)
         await self._respond(interaction, "▶️ Resumed.")
 
     @app_commands.command(
@@ -237,9 +314,16 @@ class Music(commands.Cog):
         if player is None or player.current is None:
             await self._respond(interaction, "Nothing is playing.", error=True)
             return
+        # Retire the old panel and make this fresh message the live one, so its
+        # progress bar keeps updating and its buttons reflect state.
+        await self._retire_panel(player)
+        view = NowPlayingControls()
+        view.sync(player)
         await interaction.response.send_message(
-            embed=audio.now_playing_embed(player), view=NowPlayingControls()
+            embed=audio.now_playing_embed(player), view=view
         )
+        message = await interaction.original_response()
+        self._set_panel(player, message, view)
 
     @app_commands.command(
         name="volume", description="Show or set the playback volume (0-200)."
@@ -258,6 +342,7 @@ class Music(commands.Cog):
             await self._respond(interaction, f"🔊 Volume is **{player.volume}%**.")
             return
         await player.set_volume(level)
+        await self._refresh_np(player)
         await self._respond(interaction, f"🔊 Volume set to **{level}%**.")
 
     @app_commands.command(
@@ -283,6 +368,7 @@ class Music(commands.Cog):
             "track": wavelink.QueueMode.loop,
             "queue": wavelink.QueueMode.loop_all,
         }[mode.value]
+        await self._refresh_np(player)
         await self._respond(interaction, f"🔁 Loop set to **{mode.name}**.")
 
     @app_commands.command(name="shuffle", description="Shuffle the upcoming queue.")

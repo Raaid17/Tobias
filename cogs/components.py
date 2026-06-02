@@ -6,7 +6,8 @@ layer (not `services/`) because they act on a live Discord interaction.
 
 The controls operate on the guild's current player, fetched fresh on every
 click, so a single panel keeps working as tracks change. Buttons are guarded:
-only members in the bot's voice channel may use them.
+only members in the bot's voice channel may use them. Call `sync(player)`
+before (re)rendering so the play/pause and loop buttons reflect live state.
 
 Note: these views are not persistent across bot restarts (no `custom_id` /
 `add_view` registration). After a restart, run `/nowplaying` for a fresh panel.
@@ -25,6 +26,24 @@ class NowPlayingControls(discord.ui.View):
 
     def __init__(self) -> None:
         super().__init__(timeout=None)
+
+    def sync(self, player: wavelink.Player) -> None:
+        """Reflect live player state on the stateful buttons.
+
+        Must be called before the message is (re)rendered with this view.
+        """
+        self.play_pause.emoji = "▶️" if player.paused else "⏸️"
+
+        mode = player.queue.mode
+        if mode is wavelink.QueueMode.loop:
+            self.loop.emoji = "🔂"  # repeat-one
+            self.loop.style = discord.ButtonStyle.success
+        elif mode is wavelink.QueueMode.loop_all:
+            self.loop.emoji = "🔁"
+            self.loop.style = discord.ButtonStyle.success
+        else:
+            self.loop.emoji = "🔁"
+            self.loop.style = discord.ButtonStyle.secondary
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Allow only members in the bot's voice channel to use the controls."""
@@ -54,12 +73,13 @@ class NowPlayingControls(discord.ui.View):
         # Safe: interaction_check guarantees a connected player.
         return interaction.guild.voice_client  # type: ignore[return-value]
 
-    @discord.ui.button(emoji="⏯️", style=discord.ButtonStyle.primary)
+    @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.primary)
     async def play_pause(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
         player = self._player(interaction)
         await player.pause(not player.paused)
+        self.sync(player)
         await interaction.response.edit_message(
             embed=audio.now_playing_embed(player), view=self
         )
@@ -104,16 +124,13 @@ class NowPlayingControls(discord.ui.View):
             wavelink.QueueMode.loop_all: wavelink.QueueMode.normal,
         }
         player.queue.mode = nxt.get(player.queue.mode, wavelink.QueueMode.normal)
-        # Refresh the panel footer (which shows the loop state) if it holds one.
+        self.sync(player)
         if player.current is not None:
             await interaction.response.edit_message(
                 embed=audio.now_playing_embed(player), view=self
             )
         else:
-            await interaction.response.send_message(
-                f"🔁 Loop: {audio.loop_mode_label(player.queue.mode)}",
-                ephemeral=True,
-            )
+            await interaction.response.edit_message(view=self)
 
     @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger)
     async def stop_playback(
