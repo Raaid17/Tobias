@@ -46,6 +46,26 @@ def _track_length_label(track: wavelink.Playable) -> str:
     return "🔴 LIVE" if track.is_stream else format_duration(track.length)
 
 
+def artwork_url(track: wavelink.Playable) -> str | None:
+    """Best-effort cover/preview image for a track.
+
+    Prefers the artwork Lavalink provides; for YouTube it falls back to the
+    video thumbnail built from the track id, since Lavalink/the youtube-source
+    plugin sometimes omits artworkUrl.
+    """
+    art = getattr(track, "artwork", None)
+    if art:
+        return art
+    identifier = getattr(track, "identifier", None)
+    source = (getattr(track, "source", "") or "").lower()
+    uri = (getattr(track, "uri", "") or "").lower()
+    if identifier and (
+        "youtube" in source or "youtube.com" in uri or "youtu.be" in uri
+    ):
+        return f"https://i.ytimg.com/vi/{identifier}/hqdefault.jpg"
+    return None
+
+
 def loop_mode_label(mode: wavelink.QueueMode) -> str:
     """Human-readable name for a queue loop mode."""
     return {
@@ -111,8 +131,9 @@ def track_queued_embed(track: wavelink.Playable, position: int) -> discord.Embed
     embed.description = (
         f"*{track.author}*\n\n{meta}" if track.author else meta
     )
-    if track.artwork:
-        embed.set_thumbnail(url=track.artwork)
+    art = artwork_url(track)
+    if art:
+        embed.set_thumbnail(url=art)
     return embed
 
 
@@ -120,9 +141,11 @@ def playlist_queued_embed(playlist: wavelink.Playlist, added: int) -> discord.Em
     embed = discord.Embed(color=EMBED_COLOR)
     embed.set_author(name="➕  Added to Queue")
     embed.title = playlist.name
-    embed.description = f"Playlist  ·  **{added}** track(s)"
-    if playlist.tracks and playlist.tracks[0].artwork:
-        embed.set_thumbnail(url=playlist.tracks[0].artwork)
+    embed.description = f"Playlist  •  **{added}** track(s)"
+    if playlist.tracks:
+        art = artwork_url(playlist.tracks[0])
+        if art:
+            embed.set_thumbnail(url=art)
     return embed
 
 
@@ -149,8 +172,9 @@ def now_playing_embed(player: wavelink.Player) -> discord.Embed:
         lines.append(f"\n`{elapsed}`  {bar}  `{total}`")
     embed.description = "\n".join(lines)
 
-    if track.artwork:
-        embed.set_thumbnail(url=track.artwork)
+    art = artwork_url(track)
+    if art:
+        embed.set_image(url=art)
 
     state = "⏸ Paused" if player.paused else "▶ Playing"
     embed.set_footer(
