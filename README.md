@@ -110,9 +110,11 @@ All configuration is via environment variables (see `.env.example`):
 | `/leave`                   | Disconnect from voice                    |
 | `/ping` · `/help`          | Latency check / command list             |
 
-Every "Now playing" message also has buttons (⏯️ ⏭️ 🔀 🔁 ⏹️) usable by
-anyone in the bot's voice channel. The bot auto-disconnects after a period of
-inactivity.
+Every "Now playing" message also has buttons — ⏪/⏩ scrub ±15s, ⏯ play/pause,
+⏭ skip, ⏹ stop, 🔀 shuffle, 🔁 loop — usable by anyone in the bot's voice
+channel. (The progress bar itself is display-only; Discord has no draggable
+slider, so use ⏪/⏩ or `/seek` to scrub.) The bot auto-disconnects after a
+period of inactivity.
 
 ## Roadmap
 

@@ -7,6 +7,7 @@ wavelink keys players by guild, so state never leaks between servers.
 from __future__ import annotations
 
 import logging
+import time
 
 import discord
 import wavelink
@@ -47,6 +48,8 @@ class Music(commands.Cog):
             track = player.current
             if message is None or track is None or player.paused or track.is_stream:
                 continue
+            if time.monotonic() < getattr(player, "seek_until", 0.0):
+                continue  # a manual seek is still settling; don't render stale pos
             fill = audio.progress_fill(player.position, track.length)
             if getattr(player, "np_fill", None) == fill:
                 continue
@@ -60,14 +63,19 @@ class Music(commands.Cog):
     async def _before_progress_updater(self) -> None:
         await self.bot.wait_until_ready()
 
-    async def _refresh_np(self, player: wavelink.Player) -> None:
+    async def _refresh_np(
+        self, player: wavelink.Player, *, position: int | None = None
+    ) -> None:
         """Re-render the now-playing panel so its embed and buttons reflect a
-        change made outside the periodic updater (pause, volume, loop, …)."""
+        change made outside the periodic updater (pause, volume, loop, seek …).
+
+        ``position`` (ms) optimistically overrides the playhead after a seek.
+        """
         message: discord.Message | None = getattr(player, "np_message", None)
         if message is None or player.current is None:
             return
         view: NowPlayingControls | None = getattr(player, "np_view", None)
-        kwargs: dict = {"embed": audio.now_playing_embed(player)}
+        kwargs: dict = {"embed": audio.now_playing_embed(player, position=position)}
         if view is not None:
             view.sync(player)
             kwargs["view"] = view
@@ -403,8 +411,10 @@ class Music(commands.Cog):
                 error=True,
             )
             return
-        ms = min(ms, track.length)
+        ms = max(0, min(ms, track.length))
         await player.seek(ms)
+        audio.mark_seek(player, ms)
+        await self._refresh_np(player, position=ms)
         await self._respond(interaction, f"⏩ Seeked to `{audio.format_duration(ms)}`.")
 
     @app_commands.command(

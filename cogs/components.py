@@ -9,11 +9,20 @@ click, so a single panel keeps working as tracks change. Buttons are guarded:
 only members in the bot's voice channel may use them. Call `sync(player)`
 before (re)rendering so the play/pause and loop buttons reflect live state.
 
+Layout:
+    row 0 (transport):  ⏪  ⏯  ⏩  ⏭  ⏹
+    row 1 (modes):      🔀  🔁
+
+The progress bar in the embed is display-only — Discord has no draggable
+slider component — so ⏪/⏩ (and the /seek command) are how you scrub.
+
 Note: these views are not persistent across bot restarts (no `custom_id` /
 `add_view` registration). After a restart, run `/nowplaying` for a fresh panel.
 """
 
 from __future__ import annotations
+
+import time
 
 import discord
 import wavelink
@@ -73,7 +82,42 @@ class NowPlayingControls(discord.ui.View):
         # Safe: interaction_check guarantees a connected player.
         return interaction.guild.voice_client  # type: ignore[return-value]
 
-    @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.primary)
+    async def _do_seek(self, interaction: discord.Interaction, *, forward: bool) -> None:
+        player = self._player(interaction)
+        track = player.current
+        if track is None:
+            await interaction.response.send_message(
+                "Nothing is playing.", ephemeral=True
+            )
+            return
+        if track.is_stream or not getattr(track, "is_seekable", True):
+            await interaction.response.send_message(
+                "This track can't be seeked.", ephemeral=True
+            )
+            return
+        # While a recent seek is still settling, accumulate off the last target
+        # so rapid ⏪/⏩ presses add up; otherwise base off the live position.
+        if time.monotonic() < getattr(player, "seek_until", 0.0):
+            base = getattr(player, "seek_target", player.position)
+        else:
+            base = player.position
+        step = audio.SEEK_STEP_MS if forward else -audio.SEEK_STEP_MS
+        target = max(0, min(base + step, track.length))
+        await player.seek(target)
+        audio.mark_seek(player, target)
+        await interaction.response.edit_message(
+            embed=audio.now_playing_embed(player, position=target), view=self
+        )
+
+    # ----- row 0: transport ------------------------------------------------
+
+    @discord.ui.button(emoji="⏪", style=discord.ButtonStyle.secondary, row=0)
+    async def rewind(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await self._do_seek(interaction, forward=False)
+
+    @discord.ui.button(emoji="⏸️", style=discord.ButtonStyle.primary, row=0)
     async def play_pause(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
@@ -84,7 +128,13 @@ class NowPlayingControls(discord.ui.View):
             embed=audio.now_playing_embed(player), view=self
         )
 
-    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(emoji="⏩", style=discord.ButtonStyle.secondary, row=0)
+    async def forward(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await self._do_seek(interaction, forward=True)
+
+    @discord.ui.button(emoji="⏭️", style=discord.ButtonStyle.secondary, row=0)
     async def skip(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
@@ -97,7 +147,25 @@ class NowPlayingControls(discord.ui.View):
         await player.skip(force=True)
         await interaction.response.send_message("⏭️ Skipped.", ephemeral=True)
 
-    @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger, row=0)
+    async def stop_playback(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        # Named stop_playback (not stop) so it doesn't shadow View.stop().
+        player = self._player(interaction)
+        player.queue.clear()
+        await player.stop()
+        for child in self.children:
+            child.disabled = True  # type: ignore[attr-defined]
+        self.stop()  # stop listening for further interactions on this view
+        await interaction.response.edit_message(view=self)
+        await interaction.followup.send(
+            "⏹️ Stopped and cleared the queue.", ephemeral=True
+        )
+
+    # ----- row 1: modes ----------------------------------------------------
+
+    @discord.ui.button(emoji="🔀", style=discord.ButtonStyle.secondary, row=1)
     async def shuffle(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
@@ -112,7 +180,7 @@ class NowPlayingControls(discord.ui.View):
             f"🔀 Shuffled {player.queue.count} tracks.", ephemeral=True
         )
 
-    @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(emoji="🔁", style=discord.ButtonStyle.secondary, row=1)
     async def loop(
         self, interaction: discord.Interaction, button: discord.ui.Button
     ) -> None:
@@ -131,19 +199,3 @@ class NowPlayingControls(discord.ui.View):
             )
         else:
             await interaction.response.edit_message(view=self)
-
-    @discord.ui.button(emoji="⏹️", style=discord.ButtonStyle.danger)
-    async def stop_playback(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ) -> None:
-        # Named stop_playback (not stop) so it doesn't shadow View.stop().
-        player = self._player(interaction)
-        player.queue.clear()
-        await player.stop()
-        for child in self.children:
-            child.disabled = True  # type: ignore[attr-defined]
-        self.stop()  # stop listening for further interactions on this view
-        await interaction.response.edit_message(view=self)
-        await interaction.followup.send(
-            "⏹️ Stopped and cleared the queue.", ephemeral=True
-        )

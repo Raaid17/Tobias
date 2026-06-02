@@ -8,6 +8,8 @@ the split means the playback rules live in one testable place.
 
 from __future__ import annotations
 
+import time
+
 import discord
 import wavelink
 
@@ -28,6 +30,12 @@ PROGRESS_BAR_SLOTS = 18
 # advance. Each advance is a message edit (rate-limited), so this is a periodic
 # refresh, not a true per-second clock — and we only edit when the bar moves.
 NOW_PLAYING_REFRESH = 5
+# How far the ⏪/⏩ buttons jump.
+SEEK_STEP_MS = 15_000
+# After a manual seek, suppress the background bar refresh this long so it won't
+# render the player's stale (pre-seek) position before Lavalink reports the new
+# one. Must comfortably exceed Lavalink's player-update interval (~5s).
+SEEK_SUPPRESS_S = 6.0
 
 
 def format_duration(milliseconds: int) -> str:
@@ -121,6 +129,21 @@ def _progress_bar(position: int, length: int, slots: int = PROGRESS_BAR_SLOTS) -
     return "━" * filled + "●" + "─" * (slots - filled - 1)
 
 
+def mark_seek(player: wavelink.Player, target_ms: int) -> None:
+    """Record an optimistic seek to ``target_ms`` (milliseconds).
+
+    Lets the now-playing panel jump to the target immediately while the
+    background updater is suppressed (see ``SEEK_SUPPRESS_S``) until Lavalink
+    reports the new position — and lets rapid ⏪/⏩ presses accumulate off the
+    last target rather than the player's stale position.
+    """
+    track = getattr(player, "current", None)
+    length = getattr(track, "length", 0) or 0
+    player.np_fill = progress_fill(target_ms, length)  # type: ignore[attr-defined]
+    player.seek_target = target_ms  # type: ignore[attr-defined]
+    player.seek_until = time.monotonic() + SEEK_SUPPRESS_S  # type: ignore[attr-defined]
+
+
 def track_queued_embed(track: wavelink.Playable, position: int) -> discord.Embed:
     """Embed shown when a single track is added to the queue."""
     embed = discord.Embed(color=EMBED_COLOR)
@@ -149,11 +172,19 @@ def playlist_queued_embed(playlist: wavelink.Playlist, added: int) -> discord.Em
     return embed
 
 
-def now_playing_embed(player: wavelink.Player) -> discord.Embed:
-    """Sleek media-player card for the currently playing track."""
+def now_playing_embed(
+    player: wavelink.Player, *, position: int | None = None
+) -> discord.Embed:
+    """Sleek media-player card for the currently playing track.
+
+    ``position`` (ms) overrides the playhead for an optimistic render right
+    after a seek, before the player reports its new position.
+    """
     track = player.current
     if track is None:
         return discord.Embed(description="*Nothing is playing.*", color=EMBED_COLOR)
+
+    pos = player.position if position is None else position
 
     embed = discord.Embed(color=EMBED_COLOR)
     embed.set_author(name="🎵  Now Playing")
@@ -166,8 +197,8 @@ def now_playing_embed(player: wavelink.Player) -> discord.Embed:
     if track.is_stream:
         lines.append("\n🔴  **LIVE**")
     else:
-        bar = _progress_bar(player.position, track.length)
-        elapsed = format_duration(player.position)
+        bar = _progress_bar(pos, track.length)
+        elapsed = format_duration(pos)
         total = format_duration(track.length)
         lines.append(f"\n`{elapsed}`  {bar}  `{total}`")
     embed.description = "\n".join(lines)
